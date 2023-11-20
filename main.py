@@ -1,30 +1,38 @@
 import sys
 
 import matplotlib
-from matplotlib.figure import Figure
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QCursor, QPixmap, QRegion, QPainterPath
-from PyQt5.QtWidgets import QWidget, QApplication, QDesktopWidget, QLabel
-from matplotlib import pyplot as plt
+from PyQt5.QtGui import QPixmap, QRegion, QPainterPath
+from PyQt5.QtWidgets import QWidget, QApplication, QLabel, QMenu
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.collections import LineCollection
+from matplotlib.figure import Figure
 from matplotlib.patheffects import withStroke
 
 matplotlib.use('qtagg')
+
+
+class Protractor(Figure):
+    def __int__(self):
+        super(Figure, self).__init__()
 
 
 class ProtractorWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.__drag_win = False
+        self.angle = 180
+        self.figure_size = (10, 10)
+        self.base_dpi = 80
+        self.mindpi = 60
+        self.maxdpi = max(QApplication.desktop().height(), QApplication.desktop().width()) // self.figure_size[0]
         self.init_ui()
 
     def init_ui(self):
         self.set_window_properties()
         self.create_canvas_and_label()
-        self.set_protractor_windows()
-        self.center()
+        self.move_center()
 
     def set_window_properties(self):
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -32,40 +40,42 @@ class ProtractorWidget(QWidget):
         self.setWindowOpacity(0.5)
 
     def create_canvas_and_label(self):
-        self.canvas = FigureCanvas(Figure(figsize=(8, 8), dpi=144, constrained_layout=True))
+        self.canvas = FigureCanvas(Figure(figsize=self.figure_size, dpi=self.base_dpi, constrained_layout=True))
         self.ax = self.canvas.figure.add_subplot(projection="polar")
 
         self.qlabel = QLabel(self)
         self.qlabel.setScaledContents(True)
-
         self.update_protractor()
 
     def update_protractor(self):
         self.draw_protractor()
         self.pixmap = QPixmap(self.canvas.grab().toImage())
-        print(self.canvas.figure.get_size_inches())
-
         self.qlabel.setFixedSize(self.pixmap.width(), self.pixmap.height())
         self.qlabel.setPixmap(self.pixmap)
-        print("update_pro")
         self.set_protractor_windows()
 
     def set_protractor_windows(self):
         w, h = self.pixmap.width(), self.pixmap.height()
-        self.setGeometry(0, 0, w, h)  # 根据图像大小设置窗口
+        fx = self.frameGeometry().center().x()
+        fy = self.frameGeometry().center().y()
+        self.setGeometry(fx - w // 2 + 1, fy - h // 2 + 1, w, h)  # 根据图像大小设置窗口
+
         x, y = 0, 0
+        # 在绘制之前启用抗锯齿
+
         path = QPainterPath()
         path.moveTo((x + w) // 2, (y + h) // 2)
-        path.arcTo(x, y, w, h, -3, 180 + 6)  # Ensure a half circle
+        start_angle = -4 if self.angle == 180 else 0
+        end_angle = 188 if self.angle == 180 else 360
+        path.arcTo(x, y, w, h, start_angle, end_angle)  # Ensure a half circle
         path.lineTo(path.elementAt(1).x, path.elementAt(1).y)
         region = QRegion(path.toFillPolygon().toPolygon())
         self.setMask(region)
 
-    def center(self):
-        qr = self.frameGeometry()
+    def move_center(self):
+        fs = self.frameGeometry().size()
         cp = QApplication.desktop().availableGeometry().center()
-        qr.moveCenter(cp)
-        self.move(qr.topLeft())
+        self.move(cp.x() - fs.width() // 2, cp.y() - fs.height() // 2)
 
     def mousePressEvent(self, e):
         self.__drag_win = True
@@ -83,13 +93,27 @@ class ProtractorWidget(QWidget):
         self.setCursor(Qt.ArrowCursor)
 
     def wheelEvent(self, e):
-        self.set_protractor_size(15, 15)
+        dpi = min(self.canvas.figure.get_dpi() + (1 if e.angleDelta().y() > 0 else -1), self.maxdpi)
+        if dpi in [self.maxdpi, self.mindpi]:
+            return
+        # for i in np.linspace(self.canvas.figure.get_dpi(), dpi, 11)[1:]:
+        self.set_protractor_size(dpi)
 
-    def set_protractor_size(self, w, h):
-        self.canvas.figure.set_size_inches(w, h)
-        self.canvas.setFixedSize(w * self.canvas.figure.dpi, h * self.canvas.figure.dpi)
-
+    def set_protractor_size(self, dpi):
+        self.canvas.figure.set_dpi(dpi)
+        self.canvas.setFixedSize(*(int(self.canvas.figure.get_dpi() * s) for s in self.canvas.figure.get_size_inches()))
         self.update_protractor()
+
+    def contextMenuEvent(self, e):
+        menu = QMenu(self)
+        switch_action = menu.addAction(f"{360 if self.angle == 180 else 180}°量角器")
+        quit_action = menu.addAction("退出")
+        action = menu.exec_(self.mapToGlobal(e.pos()))
+        if switch_action == action:
+            self.angle = 360 if self.angle == 180 else 180
+            self.update_protractor()
+        elif action == quit_action:
+            self.close()
 
     def draw_protractor(self):
         self.ax.clear()
@@ -100,8 +124,8 @@ class ProtractorWidget(QWidget):
         self.ax.set_rlim(0, 1)
         self.ax.grid(False)
 
-        scales = np.zeros((181, 2, 2))
-        angles = np.linspace(0, np.deg2rad(180), 181)
+        scales = np.zeros((self.angle + 1, 2, 2))
+        angles = np.linspace(0, np.deg2rad(self.angle), self.angle + 1)
         scales[:, :, 0] = np.stack((angles, angles), axis=1)
         scales[:, 0, 1] = 0.96
         scales[::5, 0, 1] = 0.93
@@ -110,29 +134,34 @@ class ProtractorWidget(QWidget):
         scales[:, 1, 1] = 1
 
         scales_coll = LineCollection(scales, linewidths=[2, 1, 1, 1, 1], color="k", linestyles="solid")
+        zero_line = LineCollection([[[0, 0.9], [0, 1]], [[np.pi, 0.9], [np.pi, 1]]], linewidths=[2], color="r",
+                                   linestyles="solid")
         self.ax.add_collection(scales_coll)
+        self.ax.add_collection(zero_line)
 
-        for r in [0.999, 0.82, 0.7, 0.2]:
-            semi = np.linspace(0, np.deg2rad(180) if r != 0.999 else np.deg2rad(360), 1000)
+        for r in [0.999, 0.815, 0.7, 0.2]:
+            semi = np.linspace(0, np.deg2rad(self.angle) if r != 0.999 else np.deg2rad(360), 1000)
             rs = np.full_like(semi, fill_value=r)
             self.ax.plot(semi, rs, color="k")
 
         text_kw = dict(rotation_mode='anchor',
-                       va='top', ha='center', color='black', clip_on=False,
+                       va='top', ha='center', clip_on=False,
                        path_effects=[withStroke(linewidth=12, foreground='white')])
 
-        for i in range(0, 181, 10):
+        for i in range(0, self.angle + 1, 10):
             theta = np.deg2rad(i)
             if theta == np.pi / 2:
                 self.ax.text(theta, 0.85, i, fontsize=40, **text_kw)
                 continue
             elif theta == np.pi * 1.5:
-                self.ax.text(theta, 0.85, 90, rotation=i - 90, fontsize=40, **text_kw)
+                self.ax.text(theta, 0.85, 90, rotation=i - 90, fontsize=40, color='red', **text_kw)
                 continue
 
-            self.ax.text(theta, 0.89, (i % 180 if i != 180 else 180), rotation=i - 90, fontsize=25, **text_kw)
-            self.ax.text(theta, 0.79, ((180 - i) % 180 if i not in (0, 360) else 180), rotation=i - 90, fontsize=20,
-                    **text_kw)
+            self.ax.text(theta, 0.89, ((180 - i) % 180 if i not in (0, 360) else 180), rotation=i - 90, fontsize=24,
+                         color='black', **text_kw)
+            self.ax.text(theta, 0.79, (i % 180 if i != 180 else 180), rotation=i - 90, fontsize=18,
+                         color='blue', **text_kw)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
