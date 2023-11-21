@@ -1,39 +1,38 @@
-import matplotlib
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.patheffects import withStroke
-
-matplotlib.use('QtAgg')
 
 
 class Protractor(Figure):
     STYLE_COMMON = 1
     STYLE_SIMPLE = 0
 
-    def __init__(self, angle, figsize, dpi, constrained_layout, style=1):
+    def __init__(self, angle, figsize, dpi, constrained_layout=True, style=1):
         super().__init__(figsize, dpi, constrained_layout=constrained_layout)
-        self.ax = self.add_subplot(projection="polar")
         self.angle = angle
         self.style = style
         self.lp = [0.96, 0.93, 0.2, 0] if self.style else [0.96, 0.96, 0.93, 0.93]
+        self.ax = self.add_subplot(projection="polar")
+        self.mask = Figure(figsize=figsize, dpi=dpi, constrained_layout=constrained_layout, frameon=False)
 
     def draw_protractor(self):
-        self.init_ax()
+        self.init_ax(self.ax)
         self.draw_scales()
 
         if self.style == Protractor.STYLE_COMMON:
             self.draw_semi_circle()
             self.draw_text()
 
-    def init_ax(self):
-        self.ax.clear()
-        self.ax.set_thetamin(0)
-        self.ax.set_thetamax(360)
-        self.ax.set_xticklabels([])
-        self.ax.set_yticklabels([])
-        self.ax.set_rlim(0, 1)
-        self.ax.grid(False)
+    def init_ax(self, ax):
+        ax.clear()
+        ax.set_thetamin(0)
+        ax.set_thetamax(360)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_rlim(0, 1)
+        ax.grid(False)
+        ax.set_frame_on(False)  # 删除外边框
 
     def draw_scales(self):
         scales = np.zeros((self.angle + 1, 2, 2))
@@ -45,8 +44,8 @@ class Protractor(Figure):
         scales[::90, 0, 1] = self.lp[3]
         scales[:, 1, 1] = 1
 
-        scales_coll = LineCollection(scales, linewidths=[2, 1, 1, 1, 1], color="k", linestyles="solid")
-        zero_line = LineCollection([[[0, 0.9], [0, 1]], [[np.pi, 0.9], [np.pi, 1]]], linewidths=[2], color="r",
+        scales_coll = LineCollection(scales, linewidths=[3, 1.5, 1.5, 1.5, 1.5], color="k", linestyles="solid")
+        zero_line = LineCollection([[[0, 0.9], [0, 1]], [[np.pi, 0.9], [np.pi, 1]]], linewidths=[3], color="r",
                                    linestyles="solid")
         self.ax.add_collection(scales_coll)
         self.ax.add_collection(zero_line)
@@ -54,10 +53,10 @@ class Protractor(Figure):
             self.ax.plot(0, 0, color="red", marker='o', markersize=3)
 
     def draw_semi_circle(self):
-        for r in [0.999, 0.815, 0.7, 0.2]:
+        for r in [0.815, 0.7, 0.2]:
             semi = np.linspace(0, np.deg2rad(self.angle) if r != 0.999 else np.deg2rad(360), 1000)
             rs = np.full_like(semi, fill_value=r)
-            self.ax.plot(semi, rs, color="k")
+            self.ax.plot(semi, rs, linewidth=2, c="k")
 
     def draw_text(self, c="blue"):
         text_kw = dict(rotation_mode='anchor',
@@ -81,3 +80,17 @@ class Protractor(Figure):
     def change_style(self):
         self.style = not self.style
         self.lp = [0.96, 0.93, 0.2, 0] if self.style else [0.96, 0.96, 0.93, 0.93]
+
+    def get_mask(self, angle):
+        ax = self.mask.add_subplot(projection="polar")
+        self.init_ax(ax)
+        if angle == 180:
+            theta = np.linspace(np.deg2rad(-4), np.deg2rad(184), 1000)
+            chords = np.full_like(theta, 1)
+            ax.plot(theta, chords, color="k", antialiased=True, rasterized=True)
+            ax.fill(theta, chords, color="k", antialiased=True, rasterized=True)
+        else:
+            ax.plot(0, 0, marker="o", markersize=self.mask.get_figwidth() * self.mask.get_dpi(), c="k",
+                    antialiased=True, rasterized=True)
+
+        return self.mask
