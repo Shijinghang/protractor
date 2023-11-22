@@ -1,9 +1,10 @@
 import sys
+from protractor import Protractor
+from concurrent.futures import ThreadPoolExecutor
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QRegion, QBitmap
+from PyQt5.QtGui import QPixmap, QRegion, QBitmap, QImage
 from PyQt5.QtWidgets import QWidget, QApplication, QLabel, QMenu
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from protractor import Protractor
 
 
 class ProtractorWidget(QWidget):
@@ -14,10 +15,10 @@ class ProtractorWidget(QWidget):
         self.qlabel = None
         self.canvas = None
         self.__drag_win = False
-        self.bsize = 800
+        self.bsize = 1000
         self.minsize = 600
         self.maxsize = max(QApplication.desktop().height(), QApplication.desktop().width())
-        self.protractor = Protractor(angle=180, figsize=(10, 10), dpi=242, constrained_layout=True)
+        self.protractor = Protractor(angle=180, figsize=(10, 10), dpi=192, constrained_layout=True)
         self.init_ui()
 
     def init_ui(self):
@@ -28,27 +29,42 @@ class ProtractorWidget(QWidget):
     def set_window_properties(self):
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setWindowOpacity(0.6)
 
     def create_canvas_and_label(self):
         self.canvas = FigureCanvas(self.protractor)
         self.canvas.figure.draw_protractor()
-        self.semi_mask = QPixmap(FigureCanvas(self.protractor.get_mask(180)).grab().toImage())
-        self.full_mask = QPixmap(FigureCanvas(self.protractor.get_mask(360)).grab().toImage())
+
+        with ThreadPoolExecutor() as executor:
+            task = executor.submit(self.create_mask, 180)
+            self.semi_mask = task.result()
+        with ThreadPoolExecutor() as executor:
+            task = executor.submit(self.create_mask, 360)
+            self.full_mask = task.result()
+
         self.qlabel = QLabel(self)
         self.qlabel.setScaledContents(True)
         self.qlabel.setPixmap(QPixmap(self.canvas.grab().toImage()))
+        self.qlabel.setPixmap(QPixmap(self.canvas.grab().toImage()))
         self.update_protractor_window(self.bsize)
+
+    def create_mask(self, angle):
+        canvas = FigureCanvas(self.protractor.get_mask(angle))
+        canvas.draw()
+        mask = QPixmap(
+            QImage(canvas.tostring_argb(), canvas.figure.bbox.width, canvas.figure.bbox.height,
+                   QImage.Format_ARGB32))
+        return mask
 
     def update_protractor_window(self, size):
 
-        size = int(size if size % 2 else size+1)
+        size = int(size if size % 2 else size + 1)
         self.qlabel.setFixedSize(size, size)
         fx = self.frameGeometry().center().x()
         fy = self.frameGeometry().center().y()
         self.setGeometry(fx - size // 2, fy - size // 2, size, size)  # 根据图像大小设置窗口
 
         mask_qpm = self.semi_mask if self.canvas.figure.angle == 180 else self.full_mask
+
         mask_qbm = QBitmap(mask_qpm.scaled(self.qlabel.width(), self.qlabel.height()))
         region = QRegion(mask_qbm)
         self.setWindowOpacity(0.6)
@@ -79,8 +95,7 @@ class ProtractorWidget(QWidget):
         self.setWindowOpacity(0.6)
 
     def wheelEvent(self, e):
-        print(e.angleDelta().y())
-        size = max(min(self.size().width() + e.angleDelta().y() / 120 * 4, self.maxsize), self.minsize)
+        size = max(min(self.size().width() + e.angleDelta().y() / 120 * 3, self.maxsize), self.minsize)
         if size in [self.maxsize, self.minsize]:
             return
         self.update_protractor_window(size)

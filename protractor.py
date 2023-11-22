@@ -2,6 +2,7 @@ import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.patheffects import withStroke
+from matplotlib import pyplot as plt
 
 
 class Protractor(Figure):
@@ -10,11 +11,12 @@ class Protractor(Figure):
 
     def __init__(self, angle, figsize, dpi, constrained_layout=True, style=1):
         super().__init__(figsize, dpi, constrained_layout=constrained_layout)
+        self.figsize = figsize
+        self.dpi = dpi
         self.angle = angle
         self.style = style
         self.lp = [0.96, 0.93, 0.2, 0] if self.style else [0.96, 0.96, 0.93, 0.93]
         self.ax = self.add_subplot(projection="polar")
-        self.mask = Figure(figsize=figsize, dpi=dpi, constrained_layout=constrained_layout, frameon=False)
 
     def draw_protractor(self):
         self.init_ax(self.ax)
@@ -82,7 +84,8 @@ class Protractor(Figure):
         self.lp = [0.96, 0.93, 0.2, 0] if self.style else [0.96, 0.96, 0.93, 0.93]
 
     def get_mask(self, angle):
-        ax = self.mask.add_subplot(projection="polar")
+        mask = plt.figure(figsize=self.figsize, dpi=self.dpi, constrained_layout=True)
+        ax = mask.add_subplot(projection="polar")
         self.init_ax(ax)
         if angle == 180:
             theta = np.linspace(np.deg2rad(-4), np.deg2rad(184), 1000)
@@ -90,7 +93,6 @@ class Protractor(Figure):
             ax.plot(theta, chords, color="k", antialiased=True, rasterized=True)
             ax.fill(theta, chords, color="k", antialiased=True, rasterized=True)
         else:
-            ax.plot(0, 0, marker="o", markersize=self.mask.get_figwidth() * self.mask.get_dpi(), c="k",
+            ax.plot(0, 0, marker="o", markersize=mask.get_figwidth() * mask.get_dpi(), c="k",
                     antialiased=True, rasterized=True)
-
-        return self.mask
+        return mask
